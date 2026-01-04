@@ -12,7 +12,9 @@ const jsonCached = (body, ttl = 300) =>
 
 export default async function handler(req) {
   const { searchParams } = new URL(req.url);
+
   const mode = searchParams.get("mode") || "schedule";
+  const groupId = searchParams.get("group") || "5.2";
 
   const YASNO_URL =
     "https://app.yasno.ua/api/blackout-service/public/shutdowns/regions/25/dsos/902/planned-outages";
@@ -23,7 +25,14 @@ export default async function handler(req) {
     });
 
     const data = await res.json();
-    const group = data["5.2"];
+    const group = data[groupId];
+
+    if (!group) {
+      return jsonCached({
+        text: `Группа ${groupId} не найдена`,
+      });
+    }
+
     const slots = group?.today?.slots || [];
 
     const toTime = (m) =>
