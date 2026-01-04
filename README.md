@@ -1,5 +1,8 @@
 # yasno_siri
 
+Киев. (в каждом запросе заменить group на свою)
+
+
 График Света (сегодня)
 https://yasno-peach.vercel.app/api/yasno?group=5.2&mode=schedule
 
