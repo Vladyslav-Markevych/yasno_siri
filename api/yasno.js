@@ -57,7 +57,7 @@ export default async function handler(req) {
       );
 
       return jsonCached({
-        text: `Тест Сегодня отключения ${ranges.join(" и ")}`,
+        text: `Сегодня отключения ${ranges.join(" и ")}`,
       });
     }
 
