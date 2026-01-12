@@ -2,13 +2,42 @@ export const config = {
   runtime: "edge",
 };
 
-const jsonCached = (body, ttl = 300) =>
+// ---------- helpers ----------
+
+const jsonCached = (body, { ttl = 300, etag } = {}) =>
   new Response(JSON.stringify(body), {
     headers: {
       "content-type": "application/json; charset=utf-8",
       "cache-control": `public, max-age=${ttl}`,
+      ...(etag ? { etag } : {}),
     },
   });
+
+const etagFromGroup = (group) =>
+  `"${group.updatedOn}_${group.today?.status}_${group.tomorrow?.status}"`;
+
+const statusPrefix = (status) => {
+  switch (status) {
+    case "EmergencyShutdowns":
+      return "Действуют экстренные отключения. ";
+    case "StabilizationShutdowns":
+      return "Действуют стабилизационные отключения. ";
+    default:
+      return "";
+  }
+};
+
+const toTime = (m) =>
+  `${Math.floor(m / 60)}:${String(m % 60).padStart(2, "0")}`;
+
+const kyivNowMinutes = () => {
+  const now = new Date(
+    new Date().toLocaleString("en-US", { timeZone: "Europe/Kyiv" })
+  );
+  return now.getHours() * 60 + now.getMinutes();
+};
+
+// ---------- handler ----------
 
 export default async function handler(req) {
   const { searchParams } = new URL(req.url);
@@ -28,131 +57,147 @@ export default async function handler(req) {
     const group = data[groupId];
 
     if (!group) {
-      return jsonCached({
-        text: `Группа ${groupId} не найдена`,
-      });
+      return jsonCached({ text: `Группа ${groupId} не найдена` });
     }
 
-    const slots = group?.today?.slots || [];
+    const etag = etagFromGroup(group);
 
-    const toTime = (m) =>
-      `${Math.floor(m / 60)}:${String(m % 60).padStart(2, "0")}`;
+    // --- If-None-Match ---
+    if (req.headers.get("if-none-match") === etag) {
+      return new Response(null, { status: 304 });
+    }
 
-    const now = new Date(
-      new Date().toLocaleString("en-US", { timeZone: "Europe/Kyiv" })
+    const prefixToday = statusPrefix(group.today?.status);
+    const prefixTomorrow = statusPrefix(group.tomorrow?.status);
+
+    const todaySlots = group?.today?.slots || [];
+    const tomorrowSlots = group?.tomorrow?.slots || [];
+
+    const definitesToday = todaySlots.filter((s) => s.type === "Definite");
+    const definitesTomorrow = tomorrowSlots.filter(
+      (s) => s.type === "Definite"
     );
 
-    const nowMin = now.getHours() * 60 + now.getMinutes();
+    const nowMin = kyivNowMinutes();
 
-    const definites = slots.filter((s) => s.type === "Definite");
-
-    // --- ГРАФИК ---
+    // ---------- schedule (today) ----------
     if (mode === "schedule") {
-      if (!definites.length) {
-        return jsonCached({ text: "Сегодня отключений нет" });
+      if (!definitesToday.length) {
+        return jsonCached(
+          { text: prefixToday + "Сегодня отключений нет" },
+          { etag }
+        );
       }
 
-      const ranges = definites.map(
+      const ranges = definitesToday.map(
         (s) => `с ${toTime(s.start)} до ${toTime(s.end)}`
       );
 
-      return jsonCached({
-        text: `Сегодня отключения ${ranges.join(" и ")}`,
-      });
-    }
-
-    // --- ГРАФИК ---
-    if (mode === "schedule") {
-      if (!definites.length) {
-        return jsonCached({ text: "Сегодня отключений нет" });
-      }
-
-      const ranges = definites.map(
-        (s) => `с ${toTime(s.start)} до ${toTime(s.end)}`
+      return jsonCached(
+        {
+          text: prefixToday + `Сегодня отключения ${ranges.join(" и ")}`,
+        },
+        { etag }
       );
-
-      return jsonCached({
-        text: `Сегодня отключения ${ranges.join(" и ")}`,
-      });
     }
 
-    // --- ГРАФИК НА ЗАВТРА ---
+    // ---------- schedule tomorrow ----------
     if (mode === "schedule_tomorrow") {
-      const tomorrowSlots = group?.tomorrow?.slots || [];
-      const tomorrowDefinites = tomorrowSlots.filter(
-        (s) => s.type === "Definite"
-      );
-
-      if (!tomorrowDefinites.length) {
-        return jsonCached({
-          text: "Завтра отключений не запланировано",
-        });
+      if (!definitesTomorrow.length) {
+        return jsonCached(
+          { text: prefixTomorrow + "Завтра отключений не запланировано" },
+          { etag }
+        );
       }
 
-      const ranges = tomorrowDefinites.map(
+      const ranges = definitesTomorrow.map(
         (s) => `с ${toTime(s.start)} до ${toTime(s.end)}`
       );
 
-      return jsonCached({
-        text: `Завтра отключения ${ranges.join(" и ")}`,
-      });
+      return jsonCached(
+        {
+          text: prefixTomorrow + `Завтра отключения ${ranges.join(" и ")}`,
+        },
+        { etag }
+      );
     }
 
-    // --- БЛИЖАЙШЕЕ ОТКЛЮЧЕНИЕ ---
+    // ---------- next ----------
     if (mode === "next") {
-      const upcoming = definites.filter((s) => s.start > nowMin);
+      const upcoming = definitesToday
+        .filter((s) => s.start > nowMin)
+        .sort((a, b) => a.start - b.start);
 
       if (!upcoming.length) {
-        return jsonCached({
-          text: "Сегодня отключений больше не ожидается",
-        });
+        return jsonCached(
+          {
+            text:
+              prefixToday + "Сегодня отключений больше не ожидается",
+          },
+          { etag }
+        );
       }
 
-      upcoming.sort((a, b) => a.start - b.start);
       const s = upcoming[0];
 
-      return jsonCached({
-        text: `Ближайшее отключение с ${toTime(s.start)} до ${toTime(s.end)}`,
-      });
+      return jsonCached(
+        {
+          text:
+            prefixToday +
+            `Ближайшее отключение с ${toTime(s.start)} до ${toTime(
+              s.end
+            )}`,
+        },
+        { etag }
+      );
     }
 
-    // --- КОГДА ВКЛЮЧАТ СВЕТ ---
+    // ---------- until_on ----------
     if (mode === "until_on") {
-      const current = definites.find(
+      const current = definitesToday.find(
         (s) => s.start <= nowMin && s.end > nowMin
       );
 
       if (!current) {
-        return jsonCached({
-          text: "Сейчас свет есть",
-        });
+        return jsonCached(
+          { text: prefixToday + "Сейчас свет есть" },
+          { etag }
+        );
       }
 
       const minutesLeft = current.end - nowMin;
-
       const h = Math.floor(minutesLeft / 60);
       const m = minutesLeft % 60;
 
       const waitText =
         h > 0 && m > 0 ? `${h} ч ${m} мин` : h > 0 ? `${h} ч` : `${m} мин`;
 
-      const endTime = toTime(current.end);
-
-      return jsonCached({
-        text: `Свет включат в ${endTime}, через ${waitText}`,
-      });
+      return jsonCached(
+        {
+          text:
+            prefixToday +
+            `По графику свет включат в ${toTime(
+              current.end
+            )}, через ${waitText}`,
+        },
+        { etag }
+      );
     }
 
-    // --- КОГДА ВЫКЛЮЧАТ СВЕТ ---
+    // ---------- off_at ----------
     if (mode === "off_at") {
-      const upcoming = definites
+      const upcoming = definitesToday
         .filter((s) => s.start > nowMin)
         .sort((a, b) => a.start - b.start);
 
       if (!upcoming.length) {
-        return jsonCached({
-          text: "Сегодня отключений больше не ожидается",
-        });
+        return jsonCached(
+          {
+            text:
+              prefixToday + "Сегодня отключений больше не ожидается",
+          },
+          { etag }
+        );
       }
 
       const next = upcoming[0];
@@ -161,20 +206,26 @@ export default async function handler(req) {
       const h = Math.floor(minutesLeft / 60);
       const m = minutesLeft % 60;
 
-      const timeText = toTime(next.start);
-
       const waitText =
         h > 0 && m > 0 ? `${h} ч ${m} мин` : h > 0 ? `${h} ч` : `${m} мин`;
 
-      return jsonCached({
-        text: `Выключат в ${timeText}, через ${waitText}`,
-      });
+      return jsonCached(
+        {
+          text:
+            prefixToday +
+            `По графику должны выключить в ${toTime(
+              next.start
+            )}, через ${waitText}`,
+        },
+        { etag }
+      );
     }
 
-    return jsonCached({ text: "Неизвестный режим" });
+    return jsonCached({ text: "Неизвестный режим" }, { etag });
   } catch (e) {
-    return new Response(JSON.stringify({ text: "Ошибка получения данных" }), {
-      status: 500,
-    });
+    return new Response(
+      JSON.stringify({ text: "Ошибка получения данных" }),
+      { status: 500 }
+    );
   }
 }
