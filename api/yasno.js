@@ -129,6 +129,48 @@ export default async function handler(req) {
       );
     }
 
+    // ---------- schedule_tomorrow ----------
+    if (mode === "schedule_tomorrow") {
+      const tomorrowStatus = group.tomorrow?.status;
+      const tomorrowSlotsRaw = group.tomorrow?.slots || [];
+
+      const definitesTomorrow = tomorrowSlotsRaw.filter(
+        (s) => s.type === "Definite"
+      );
+
+      const tomorrowPrefix = statusPrefix(tomorrowStatus);
+
+      // ❗️ Завтра нет планового графика
+      if (!definitesTomorrow.length) {
+        if (tomorrowStatus === "EmergencyShutdowns") {
+          return jsonCached(
+            {
+              text: tomorrowPrefix + "Завтра плановый график не опубликован",
+            },
+            { etag }
+          );
+        }
+
+        return jsonCached(
+          {
+            text: "Завтра отключений не запланировано",
+          },
+          { etag }
+        );
+      }
+
+      const ranges = definitesTomorrow.map(
+        (s) => `с ${toTime(s.start)} до ${toTime(s.end)}`
+      );
+
+      return jsonCached(
+        {
+          text: tomorrowPrefix + `Завтра отключения ${ranges.join(" и ")}`,
+        },
+        { etag }
+      );
+    }
+
     // ---------- next ----------
     if (mode === "next") {
       const upcoming = plannedSlots
