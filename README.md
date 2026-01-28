@@ -4,16 +4,16 @@
 
 
 График Света (сегодня)
-https://yasno-peach.vercel.app/api/yasno?group=5.2&mode=schedule
+https://yasno-peach.vercel.app/api/yasno?group=22.1&mode=schedule
 
 График Света (завтра)
-https://yasno-peach.vercel.app/api/yasno?group=5.2&schedule_tomorrow
+https://yasno-peach.vercel.app/api/yasno?group=22.1&schedule_tomorrow
 
 Ближайшее отключение 
-https://yasno-peach.vercel.app/api/yasno?group=5.2&mode=next
+https://yasno-peach.vercel.app/api/yasno?group=22.1&mode=next
 
 Когда включат свет
-https://yasno-peach.vercel.app/api/yasno?group=5.2&mode=until_on
+https://yasno-peach.vercel.app/api/yasno?group=22.1&mode=until_on
 
 Когда вЫключат свет
-https://yasno-peach.vercel.app/api/yasno?group=5.2&mode=off_at
+https://yasno-peach.vercel.app/api/yasno?group=22.1&mode=off_at
